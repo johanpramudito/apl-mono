@@ -1,0 +1,37 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model akun_pengguna {
+  id_pengguna  Int           @id @default(autoincrement())
+  username     String?       @db.VarChar(50)
+  email        String?       @unique @db.VarChar(100)
+  password     String        @db.VarChar(255)
+  pesan        pesan[]
+  chatSessions chatSession[]
+}
+
+model chatSession {
+  id_session    String        @id @default(uuid())
+  judul         String
+  id_pengguna   Int
+  akun_pengguna akun_pengguna @relation(fields: [id_pengguna], references: [id_pengguna])
+  pesan         pesan[]
+  waktu_buat    DateTime      @default(now())
+}
+
+model pesan {
+  id_pesan              Int           @id @default(autoincrement())
+  isi_pesan             String        @db.Text
+  peran                 String        @db.VarChar(20)
+  waktu_buat            DateTime      @default(now())
+  id_pengguna           Int
+  akun_pengguna         akun_pengguna @relation(fields: [id_pengguna], references: [id_pengguna])
+  chatSession           chatSession?  @relation(fields: [chatSessionId_session], references: [id_session])
+  chatSessionId_session String?
+}
