@@ -28,7 +28,7 @@ const ChatPage = () => {
   useEffect(() => {
     async function fetchMessages() {
       try {
-        const res = await fetch(`/api/thread/${threadId}`);
+        const res = await fetch(`/api/thread/${threadId}`); // This requires a dynamic API route
         const data = await res.json();
         setMessages(data.messages || []);
       } catch (err) {
@@ -60,6 +60,20 @@ const ChatPage = () => {
     let fullContent = "";
     let outputMode: "think" | "response" = "think";
 
+    // Add the user's message to the state immediately
+    // Ensure you have a mechanism to distinguish locally added messages if needed,
+    // or wait for a server acknowledgment if critical.
+    // For this fix, we focus on the streaming part.
+    // Consider adding:
+    // setMessages((prev) => [
+    //   ...prev,
+    //   { role: "user", content: textInput, thought: "" },
+    // ]);
+    // Note: textInput is cleared right after the fetch call, so capture its value before clearing
+    // if you move the user message addition here. Let's assume current behavior of adding
+    // user message after stream is intended for now and focus on the error.
+    const currentInput = textInput; // Capture current input if adding user message after stream
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -68,43 +82,71 @@ const ChatPage = () => {
 
       let parsed;
       try {
+        // It's possible a chunk might not be a complete JSON object,
+        // or the stream might send multiple JSON objects or other text.
+        // A more robust solution might involve a streaming JSON parser or
+        // ensuring the backend sends clearly delimited JSON chunks (e.g., newline-delimited JSON).
+        // For now, we'll stick to parsing each chunk as a self-contained JSON.
         parsed = JSON.parse(chunk);
-      } catch {
-        console.warn("Invalid chunk:", chunk);
-        continue;
+      } catch (error) {
+        console.warn("Invalid JSON chunk:", chunk, error);
+        continue; // Skip this chunk if it's not valid JSON
       }
 
-      const content = parsed.message.content as string;
+      // **** MODIFICATION START ****
+      // Check if parsed and parsed.message exist before accessing content
+      if (
+        parsed &&
+        parsed.message &&
+        typeof parsed.message.content === "string"
+      ) {
+        const content = parsed.message.content as string;
 
-      if (model === "deepseek") {
-        if (outputMode === "think") {
-          if (!content.includes("<think>") && !content.includes("</think>")) {
-            fullThought += content;
-          }
-          setStreamedThought(fullThought);
-          if (content.includes("</think>")) {
-            outputMode = "response";
+        if (model === "deepseek") {
+          if (outputMode === "think") {
+            if (!content.includes("<think>") && !content.includes("</think>")) {
+              fullThought += content;
+            }
+            setStreamedThought(fullThought); // Update thought as it streams
+            if (content.includes("</think>")) {
+              outputMode = "response";
+            }
+          } else {
+            fullContent += content;
+            setStreamedMessage((prev) => prev + content);
           }
         } else {
           fullContent += content;
           setStreamedMessage((prev) => prev + content);
         }
+      } else if (
+        parsed &&
+        parsed.done === true &&
+        parsed.message === undefined
+      ) {
+        // Handle potential final non-message chunk from Ollama if model signals 'done' this way
+        console.log(
+          "Stream part indicates done, but no message content: ",
+          parsed
+        );
       } else {
-        fullContent += content;
-        setStreamedMessage((prev) => prev + content);
+        console.warn("Received unexpected chunk structure:", parsed);
       }
+      // **** MODIFICATION END ****
     }
 
     let cleanThought = "";
     if (model === "deepseek") {
       cleanThought = fullThought.replace(/<\/?think>/g, "");
-      setStreamedThought(cleanThought);
+      // setStreamedThought(cleanThought); // This was already being set incrementally
     }
 
     // 2. Tambahkan ke state lokal
+    // Ensure currentInput is used here if textInput was cleared earlier
     setMessages((prev) => [
       ...prev,
-      { role: "user", content: textInput, thought: "" },
+      // Use the captured currentInput for the user's message
+      { role: "user", content: currentInput, thought: "" },
       { role: "assistant", content: fullContent.trim(), thought: cleanThought },
     ]);
 
