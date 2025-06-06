@@ -5,17 +5,18 @@ import { getMessagesForThread as getMessagesPrisma } from "@/lib/prisma-actions"
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { threadId: string } }
+  context: { params: { threadId: string } }
 ) {
+  // 1. Get the threadId from the context object
+  const { threadId } = context.params;
+  
+  // 2. Authenticate the user
   const session = await getServerSession(authOptions);
-
-  // Ensure user is authenticated
   if (!session || !session.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { threadId } = params;
-
+  // 3. Validate the threadId
   if (!threadId) {
     return NextResponse.json(
       { error: "Thread ID is required" },
@@ -23,24 +24,17 @@ export async function GET(
     );
   }
 
+  // 4. Fetch the messages
   try {
-    // Fetch messages using the Prisma action.
-    // session.user.id is the user's numeric ID.
-    // threadId is the string UUID of the chat session.
     const messages = await getMessagesPrisma(threadId, session.user.id);
     return NextResponse.json({ messages });
   } catch (error) {
-    console.error("Failed to fetch messages for thread:", error);
-    if (
-      error instanceof Error &&
-      (error.message.includes("Thread not found") ||
-        error.message.includes("not authorized"))
-    ) {
-      return NextResponse.json({ error: error.message }, { status: 404 });
-    }
-    return NextResponse.json(
-      { error: "Internal Server Error" },
-      { status: 500 }
-    );
+    console.error(`Failed to fetch messages for thread ${threadId}:`, error);
+    const errorMessage = error instanceof Error ? error.message : "Internal Server Error";
+    const status = errorMessage.includes("Not authorized") ? 403 
+                 : errorMessage.includes("not found") ? 404 
+                 : 500;
+    
+    return NextResponse.json({ error: errorMessage }, { status });
   }
 }
